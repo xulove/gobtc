@@ -24,7 +24,7 @@ import (
 	"github.com/btcsuite/go-socks/socks"
 	"github.com/davecgh/go-spew/spew"
 )
-
+//含了几乎全部的Peer相关逻辑实现代码；
 const (
 	// MaxProtocolVersion is the max protocol version the peer supports.
 	MaxProtocolVersion = wire.FeeFilterVersion
@@ -2054,6 +2054,7 @@ func (p *Peer) start() error {
 	log.Tracef("Starting peer %s", p)
 
 	negotiateErr := make(chan error, 1)
+	//起了一个goroutine来与Peer交换Version消息
 	go func() {
 		if p.inbound {
 			negotiateErr <- p.negotiateInboundProtocol()
@@ -2063,6 +2064,9 @@ func (p *Peer) start() error {
 	}()
 
 	// Negotiate the protocol within the specified negotiateTimeout.
+	//调用goroutine与新的goroutine通过negotiateErr channel同步，
+	// 调用goroutine阻塞等待Version握手完成;
+	//如果Version握手失败或者超时，则返回错误，Peer关系建立失败;
 	select {
 	case err := <-negotiateErr:
 		if err != nil {
@@ -2075,6 +2079,9 @@ func (p *Peer) start() error {
 
 	// The protocol has been negotiated successfully so start processing input
 	// and output messages.
+	//如果握手成功，则启动5个新的goroutine来收发消息
+	// 。其中，stallHandler()用于处理消息超时，inHandler()用于接收Peer消息，
+	// queueHandler()用于维护消息发送列队，outHandler用于向Peer发送消息，pingHandler()用于向Peer周期性地发送心跳；
 	go p.stallHandler()
 	go p.inHandler()
 	go p.queueHandler()
@@ -2082,9 +2089,15 @@ func (p *Peer) start() error {
 	go p.pingHandler()
 
 	// Send our verack message now that the IO processing machinery has started.
+	//Peer发送verack消息，双方完成握手
 	p.QueueMessage(wire.NewMsgVerAck(), nil)
 	return nil
 }
+// start
+//Peer start()成功后，节点间的Peer关系便成功建立，可以进一步交换其他协议消息了，
+// 如果节点与不同的其他节点建立了Peer关系，其他节点又与新的节点建立Peer关系，所有节点会逐渐形成一张P2P网络。
+
+
 
 // WaitForDisconnect waits until the peer has completely disconnected and all
 // resources are cleaned up.  This will happen if either the local or remote
@@ -2173,20 +2186,36 @@ func newPeerBase(origCfg *Config, inbound bool) *Peer {
 	}
 
 	p := Peer{
+		//用于指示Peer是inbound还是outbound。如果当前节点主动连接Peer，则Peer为OutbandPeer；
+		// 如果Peer主动连接当前节点，则Peer为InboundPeer;
 		inbound:         inbound,
 		wireEncoding:    wire.BaseEncoding,
+		//已经发送给Peer的Inventory的缓存
 		knownInventory:  newMruInventoryMap(maxKnownInventory),
+		//带缓冲的stallControlMsg chan，在收、发消息的goroutine和超时控制goroutine之间通信
 		stallControl:    make(chan stallControlMsg, 1), // nonblocking sync
+		//outputQueue: 带缓冲的outMsg chan，实现了一个发送队列;
 		outputQueue:     make(chan outMsg, outputBufferSize),
+		//sendQueue: 缓冲大小为1的outMsg chan，用于将outputQueue中的outMsg按加入发送队列的顺序发送给Peer;
 		sendQueue:       make(chan outMsg, 1),   // nonblocking sync
+		//sendDoneQueue: 带缓冲的channel，用于通知维护发送队列的goroutine上一个消息已经发送完成，应该取下一条消息发送;
 		sendDoneQueue:   make(chan struct{}, 1), // nonblocking sync
+		//outputInvChan: 实现发送inv消息的发送队列，该队列以10s为周期向Peer发送inv消息
 		outputInvChan:   make(chan *wire.InvVect, outputBufferSize),
+		//inQuit: 用于通知收消息的goroutine已经退出
 		inQuit:          make(chan struct{}),
+		//outQuit: 用于通知发消息的goroutine已经退出，当收、发消息的goroutine均退出时，超时控制goroutine也将退出;
 		queueQuit:       make(chan struct{}),
 		outQuit:         make(chan struct{}),
+		//quit：用于通知所有处理事务的goroutine退出;
 		quit:            make(chan struct{}),
+		//与Peer相关的Config，其中比较重要是的Config中的MessageListeners，指明了处理从Peer收到的消息的响应函数;
 		cfg:             cfg, // Copy so caller can't mutate.
+		//services: 用于记录Peer支持的服务，
+		// 如: SFNodeNetwork表明Peer是一个全节点，
+		// SFNodeGetUTXO表明Peer支持getutxos和utxos命令，SFNodeBloom表明Peer支持Bloom过滤;
 		services:        cfg.Services,
+		//用于记录Peer所用的协议版本;
 		protocolVersion: cfg.ProtocolVersion,
 	}
 	return &p

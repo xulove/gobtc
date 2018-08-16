@@ -12,6 +12,11 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 )
+//mruinvmap.go:实现了一个简易的缓存Inverntory的LRU Cache。
+// 请注意，虽然文件名由mru开头，但它实际上实现的是LRU Cache。
+// Inventory是节点向Peer节点回复或者通知的己方已经知道的Tx或者Block，
+// 它通过inv协议消息以Inventory Vectors的形式发往Peer节点，我们将在介绍网络协议时进一步介绍它。
+// 之所以要使用缓存，是为了防止向Peer重复发送已经发送过的Inventory;
 
 // mruInventoryMap provides a concurrency safe map that is limited to a maximum
 // number of items with eviction for the oldest entry when the limit is

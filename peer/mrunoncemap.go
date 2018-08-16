@@ -10,7 +10,10 @@ import (
 	"fmt"
 	"sync"
 )
-
+//mrunoncemap.go: 与mruinvmap.go类似，
+// 它实现了一个缓存nonce值的LRU Cache。这里的nonce值是一个64位随机整数值，用于填充Peer间握手交换Version信息的nonce字段，
+// nonce字段用来判断欲连接的Peer是否就是自己：节点发出Version消息时，会填入一个随机的nonce值，连接不同Peer节点时，节点会缓存所有为Version消息生成的nonce值；
+// 如果节点收到了一个Version消息且其中的nonce值是自己缓存的nonce中的一个，那么可以判断这个Version消息由自己发送给自己了; 。
 // mruNonceMap provides a concurrency safe map that is limited to a maximum
 // number of items with eviction for the oldest entry when the limit is
 // exceeded.
