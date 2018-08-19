@@ -29,21 +29,42 @@ import (
 // AddrManager provides a concurrency safe address manager for caching potential
 // peers on the bitcoin network.
 type AddrManager struct {
+	//AddrManager的对象锁，保证addrManager是并发安全的;
 	mtx            sync.Mutex
+	//存储地址仓库的文件名，默认为“peers.json”。请注意，Bitcoind中的文件名为“peers.data”;
 	peersFile      string
+	//进行DNS Lookup的函数值;
 	lookupFunc     func(string) ([]net.IP, error)
+	//进行DNS Lookup的函数值;
 	rand           *rand.Rand
+	//32字节的随机数数序列，用于计算NewBucket和TriedBucket的索引;
 	key            [32]byte
+	//缓存所有KnownAddress的map;
 	addrIndex      map[string]*KnownAddress // address key to ka for all addrs.
+	//缓存所有新地址的map slice;
 	addrNew        [newBucketCount]map[string]*KnownAddress
+	//缓存所有已经Tried的地址的list slice。
+	// 请注意与addrNew用到map不同，这里用到了list，
+	// 然而从AddrManager的实现上看，addrNew和addrTired分别用map和list的差别并不大，
+	// 一个可能是原因是在GetAddress()中从NewBucket或才TriedBucket选择地址时，
+	// list可能按顺序访问，而map通过range遍历元素的顺序是随机的;
+
 	addrTried      [triedBucketCount]*list.List
+	//用于标识addrmanager已经启动;
 	started        int32
+	//用于标识addrmanager已经停止;
 	shutdown       int32
+	//用于同步退出，addrmanager停止时等待工作协程退出;
 	wg             sync.WaitGroup
+	//用于通知工作协程退出;
 	quit           chan struct{}
+	//记录Tried地址个数;
 	nTried         int
+	//记录New地址个数;
 	nNew           int
+	//保护localAddresses的互斥锁;
 	lamtx          sync.Mutex
+	//保存已知的本地地址;
 	localAddresses map[string]*localAddress
 }
 

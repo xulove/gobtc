@@ -54,16 +54,24 @@ const (
 
 // ConnReq is the connection request to a network address. If permanent, the
 // connection will be retried on disconnection.
+//ConnReq描述了一个连接，它的定义如下:
+
 type ConnReq struct {
 	// The following variables must only be used atomically.
+	//连接的序号，用于索引
 	id uint64
-
+	//连接的目的地址
 	Addr      net.Addr
+	//标识是否与Peer保持永久连接，如果为true，则连接失败后，
+	// 继续尝试与该Peer连接，而不是选择新的Peer地址重新连接;
 	Permanent bool
-
+	//连接成功后，真实的net.Conn对象;
 	conn       net.Conn
+	//连接的状态，有ConnPending、ConnEstablished、ConnDisconnected及ConnFailed等;
 	state      ConnState
+	//保护state状态的读写锁;
 	stateMtx   sync.RWMutex
+	//如果Permanent为true，retryCount记录该连接重复重连的次数;
 	retryCount uint32
 }
 
@@ -107,6 +115,7 @@ type Config struct {
 	// This field will not have any effect if the OnAccept field is not
 	// also specified.  It may be nil if the caller does not wish to listen
 	// for incoming connections.
+	// 节点上左右等待外部连接的接听点
 	Listeners []net.Listener
 
 	// OnAccept is a callback that is fired when an inbound connection is
@@ -118,29 +127,38 @@ type Config struct {
 	// This field will not have any effect if the Listeners field is not
 	// also specified since there couldn't possibly be any accepted
 	// connections in that case.
+	// 节点应答并接受外部连接后的回调函数
 	OnAccept func(net.Conn)
 
 	// TargetOutbound is the number of outbound network connections to
 	// maintain. Defaults to 8.
+	// 节点主动向外连接peer的最大个数
 	TargetOutbound uint32
 
 	// RetryDuration is the duration to wait before retrying connection
 	// requests. Defaults to 5s.
+	// 连接失败后发起重连的等待时间，默认为5s，默认的最大重连等待时间为5min;
 	RetryDuration time.Duration
 
 	// OnConnection is a callback that is fired when a new outbound
 	// connection is established.
+	//连接建立成功后的回调函数;
 	OnConnection func(*ConnReq, net.Conn)
 
 	// OnDisconnection is a callback that is fired when an outbound
 	// connection is disconnected.
+	//连接关闭后的回调函数;
 	OnDisconnection func(*ConnReq)
 
 	// GetNewAddress is a way to get an address to make a network connection
 	// to.  If nil, no new connections will be made automatically.
+	//连接失败后，ConnMgr可能会选择新的Peer进行连接
+	// GetNewAddress函数提供获取新Peer地址的方法，
+	// 它最终会调用addrManager的GetAddress()来分配新地址，我们将在介绍addrmgr时详细介绍;
 	GetNewAddress func() (net.Addr, error)
 
 	// Dial connects to the address on the named network. It cannot be nil.
+	//定义建立TCP连接的方式，是直连还是通过代理连接;
 	Dial func(net.Addr) (net.Conn, error)
 }
 
@@ -174,14 +192,21 @@ type handleFailed struct {
 // ConnManager provides a manager to handle network connections.
 type ConnManager struct {
 	// The following variables must only be used atomically.
+	// 记录主动连接其他节点的数量
 	connReqCount uint64
+	// 标识connMgr已经启动
 	start        int32
+	// 标识connMgr已经结束
 	stop         int32
-
+	// config相关属性可以从config结构体中看
 	cfg            Config
+	// 用户同步connMgr的退出状态，调用方可以阻塞等待connMgr的工作协成退出。
 	wg             sync.WaitGroup
+	// 某个连接失败后，ConnMgr尝试选择新的Peer地址连接的总次数
 	failedAttempts uint64
+	//用于与connmgr工作协程通信的管道;
 	requests       chan interface{}
+	//用于通知工作协程退出;
 	quit           chan struct{}
 }
 
@@ -501,6 +526,7 @@ func (cm *ConnManager) listenHandler(listener net.Listener) {
 // Start launches the connection manager and begins connecting to the network.
 func (cm *ConnManager) Start() {
 	// Already started?
+	// 源自操作是防止并发读写，+1 != 1,说明起初不是0
 	if atomic.AddInt32(&cm.start, 1) != 1 {
 		return
 	}
