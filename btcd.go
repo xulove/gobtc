@@ -57,6 +57,8 @@ func btcdMain(serverChan chan<- *server) error {
 	// Get a channel that will be closed when a shutdown signal has been
 	// triggered either from an OS signal such as SIGINT (Ctrl+C) or from
 	// another subsystem such as the RPC server.
+	//这个方法主要是使用signal.Notify(interruptChannel, interruptSignals...)
+	// 来监听系统interrupt的signal， 如有中断则close channel。
 	interrupt := interruptListener()
 	defer btcdLog.Info("Shutdown complete")
 
@@ -99,6 +101,8 @@ func btcdMain(serverChan chan<- *server) error {
 	}
 
 	// Load the block database.
+	//根据cfg.DbType配置打开数据库连接。
+	//通过代码得知支持数据库有dbTypes := []string{"ffldb", "leveldb", "sqlite"}
 	db, err := loadBlockDB()
 	if err != nil {
 		btcdLog.Errorf("%v", err)
@@ -145,6 +149,8 @@ func btcdMain(serverChan chan<- *server) error {
 	}
 
 	// Create server and start it.
+	//使用配置的端口、刚连接的db及网络参数初始一个server对象。
+	//activeNetParams.Params是硬编码参数
 	server, err := newServer(cfg.Listeners, db, activeNetParams.Params,
 		interrupt)
 	if err != nil {
@@ -295,18 +301,21 @@ func loadBlockDB() (database.DB, error) {
 	btcdLog.Info("Block database loaded")
 	return db, nil
 }
-
+// 程序的入口文件
 func main() {
 	// Use all processor cores.
+	//设置使用的CPU核数，默认已经设置所有
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	// Block and transaction processing can cause bursty allocations.  This
 	// limits the garbage collector from excessively overallocating during
 	// bursts.  This value was arrived at with the help of profiling live
 	// usage.
+	//设置垃圾回收比率
 	debug.SetGCPercent(10)
 
 	// Up some limits.
+	//设置系统资源限制
 	if err := limits.SetLimits(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to set limits: %v\n", err)
 		os.Exit(1)
